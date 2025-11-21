@@ -1,5 +1,6 @@
 streamlit
-yfinance
 pandas
 numpy
+yfinance
 altair
+scikit-learn
