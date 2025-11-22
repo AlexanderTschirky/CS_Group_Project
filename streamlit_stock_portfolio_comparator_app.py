@@ -86,6 +86,7 @@ with st.sidebar: # We use st.sidebar to place everything inside this block on th
     smi_companies = { # We open a dictionary for the stocks that can be picked.
         "^SSMI": "🇨🇭 Swiss Market Index (Benchmark)", # We add the SMI as the Benchmark for our Risk-Return-Analysis.
         "ROG.SW": "Roche", # For each stock, we ad the ticker symbols to get the data from yfinance aswell as the company name to make the application more user-friendly.
+        "NESN.SW": "Nestlé",
         "NOVN.SW": "Novartis",
         "UBSG.SW": "UBS Group",
         "ZURN.SW": "Zurich Insurance",
