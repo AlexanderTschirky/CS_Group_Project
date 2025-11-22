@@ -224,24 +224,30 @@ try:
 
         # 3. NEW: SCATTER PLOT (Risk vs Return)
         # We need to transform the data slightly for the scatter plot.
-        # FIX: Explicitly name the index 'Company' BEFORE resetting.
-        # This prevents errors where the index might be named 'Ticker' or None.
+        # FIX 1: Explicitly name the index 'Company'
         metrics_df.index.name = "Company"
         scatter_data = metrics_df.reset_index()
         
-        # Create an Altair Chart
-        # X-Axis: Annualized Volatility (Risk)
-        # Y-Axis: Annualized Return (Reward)
+        # FIX 2: Rename columns to remove dots (.) because dots break Altair/Vega-Lite parsing
+        scatter_data = scatter_data.rename(columns={
+            "Ann. Return": "Return", 
+            "Ann. Volatility": "Volatility",
+            "Sharpe Ratio": "Sharpe"
+        })
+        
+        # Create an Altair Chart using the CLEAN column names
+        # X-Axis: Volatility (Risk)
+        # Y-Axis: Return (Reward)
         # Color: Company
         chart = alt.Chart(scatter_data).mark_circle(size=100).encode(
-            x=alt.X('Ann. Volatility', title='Risk (Annualized Volatility)', axis=alt.Axis(format='%')),
-            y=alt.Y('Ann. Return', title='Return (Annualized)', axis=alt.Axis(format='%')),
+            x=alt.X('Volatility', title='Risk (Annualized Volatility)', axis=alt.Axis(format='%')),
+            y=alt.Y('Return', title='Return (Annualized)', axis=alt.Axis(format='%')),
             color='Company',
             tooltip=['Company', 
-                     alt.Tooltip('Ann. Return', format='.2%'), 
-                     alt.Tooltip('Ann. Volatility', format='.2%'), 
-                     alt.Tooltip('Sharpe Ratio', format='.2f')]
-        ).interactive() # Allows zooming and panning
+                     alt.Tooltip('Return', format='.2%'), 
+                     alt.Tooltip('Volatility', format='.2%'), 
+                     alt.Tooltip('Sharpe', format='.2f')]
+        ).interactive() 
         
         st.altair_chart(chart, use_container_width=True)
         
