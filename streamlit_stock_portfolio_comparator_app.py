@@ -142,7 +142,7 @@ with st.sidebar:
         end_date = st.date_input("End Date", value=pd.to_datetime("today"))
 
     # -------------------------------------------------------------------------
-    # SNIPPET 6: PORTFOLIO WEIGHTS (New Sidebar Section)
+    # SNIPPET 6: PORTFOLIO WEIGHTS (Modified)
     # -------------------------------------------------------------------------
     st.markdown("---")
     st.header("⚖️ Portfolio Builder")
@@ -152,13 +152,27 @@ with st.sidebar:
     
     # Only show weights input if tickers are selected
     if tickers:
-        with st.expander("Assign Weights", expanded=False):
+        with st.expander("Assign Weights (%)", expanded=True): # Expanded by default
+            st.write("Assign percentage weights. Must sum to 100%.")
+            
+            # Calculate a sensible default (e.g., 33.3 for 3 stocks)
+            default_weight = round(100.0 / len(tickers), 1)
+            
             for t in tickers:
                 # We use the full name for the label
                 name = smi_companies[t]
-                # Default weight: Equal distribution (e.g., if 3 stocks, 1.0 each)
-                # We will normalize them later, so the absolute number doesn't matter.
-                weights[t] = st.number_input(f"{name}", min_value=0.0, value=1.0, step=0.1)
+                # Input for Percentage (0-100)
+                weights[t] = st.number_input(f"{name} (%)", min_value=0.0, max_value=100.0, value=default_weight, step=1.0)
+            
+            # Display the current total sum
+            current_total = sum(weights.values())
+            st.write(f"**Total Allocation:** {current_total:.1f}%")
+            
+            # Validation Message
+            if abs(current_total - 100.0) > 0.1: # Allow tiny float error
+                st.error("⚠️ Total must be exactly 100%")
+            else:
+                st.success("✅ Portfolio Ready")
 
 # -----------------------------------------------------------------------------
 # SNIPPET 3: LOADING DATA
@@ -202,52 +216,44 @@ try:
              st.dataframe(stock_df.head())
 
         # -----------------------------------------------------------------------------
-        # DATA PRE-PROCESSING & PORTFOLIO CALCULATION
+        # DATA PRE-PROCESSING & PORTFOLIO CALCULATION (Updated)
         # -----------------------------------------------------------------------------
         # Drop rows with missing values to ensure fair comparison (same start date)
         cleaned_df = stock_df.dropna()
         
-        # CALCULATE PORTFOLIO
-        # We only calculate if the user has selected tickers (not just the Benchmark)
-        if tickers and not cleaned_df.empty:
+        # CHECK if user has valid portfolio configuration
+        valid_portfolio = False
+        current_total = sum(weights.values())
+        
+        # Logic: Only calculate portfolio if tickers selected AND weights sum to 100
+        if tickers and not cleaned_df.empty and abs(current_total - 100.0) <= 0.1:
+            valid_portfolio = True
+            
             # 1. Isolate the selected stocks (exclude benchmark)
             selected_stocks = cleaned_df[tickers]
             
             # 2. Calculate Daily Returns for individual stocks
             daily_returns = selected_stocks.pct_change()
             
-            # 3. Normalize Weights
-            # Even if user enters 50 and 50, sum is 100. We need 0.5 and 0.5.
-            total_weight = sum(weights.values())
-            if total_weight == 0:
-                # Avoid division by zero
-                norm_weights = {t: 1.0/len(tickers) for t in tickers}
-            else:
-                # FIX: Removed .keys() because 'tickers' is already a list
-                norm_weights = {t: weights[t]/total_weight for t in tickers}
+            # 3. Convert Percentages (50) to Decimals (0.5)
+            # We iterate through the list 'tickers' to ensure order matches columns
+            final_weights = [weights[t] / 100.0 for t in tickers]
             
             # 4. Calculate "My Portfolio" Returns
-            # Multiply each stock's return by its weight, then sum the row.
-            # We align the weights list to the columns order
-            weight_list = [norm_weights[t] for t in selected_stocks.columns]
-            portfolio_ret = (daily_returns * weight_list).sum(axis=1)
+            # Dot Product: returns matrix dot weights vector
+            portfolio_ret = daily_returns.dot(final_weights)
             
             # 5. Construct "My Portfolio" Price Series (Starting at 100)
-            # We assume start price is 100 to match the chart normalization
             my_portfolio_price = (1 + portfolio_ret).cumprod() * 100
-            # Fix first NaN value (Day 1 is 100)
             my_portfolio_price.iloc[0] = 100
             
-            # 6. Add to the Main DataFrame!
-            # This is the magic step. By adding it here, all downstream charts use it automatically.
+            # 6. Add to the Main DataFrame
             cleaned_df["💼 My Portfolio"] = my_portfolio_price
             
-            # 7. Optional: Add an Equal-Weighted Portfolio for comparison
-            equal_weights = [1.0/len(tickers)] * len(tickers)
-            equal_ret = (daily_returns * equal_weights).sum(axis=1)
-            equal_portfolio_price = (1 + equal_ret).cumprod() * 100
-            equal_portfolio_price.iloc[0] = 100
-            cleaned_df["⚖️ Equal Weighted"] = equal_portfolio_price
+            # REMOVED: Equal-Weighted Portfolio logic as requested.
+
+        elif tickers and abs(current_total - 100.0) > 0.1:
+            st.warning("⚠️ 'My Portfolio' not calculated: Weights do not sum to 100%.")
 
         # -----------------------------------------------------------------------------
         # SNIPPET 4: DYNAMIC KPI VISUALIZER
@@ -332,7 +338,6 @@ try:
         metrics_df = calculate_metrics(cleaned_df)
         
         # 2. Rename the Index (Rows) from Tickers to Full Names
-        # We use .get() so if "My Portfolio" isn't in the dict, it just stays "My Portfolio"
         metrics_df = metrics_df.rename(index=lambda x: smi_companies.get(x, x))
 
         # 3. SCATTER PLOT CONFIGURATION
