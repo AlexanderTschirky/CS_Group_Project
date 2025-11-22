@@ -14,6 +14,7 @@ import yfinance as yf
 import numpy as np 
 import altair as alt 
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 # This must be the first Streamlit command. It sets up the page title and layout.
@@ -92,36 +93,33 @@ def calculate_metrics(df):
     
     return summary
 
-def prepare_ml_data(series, lags=5):
+def prepare_volatility_data(series, window=5):
     """
-    Prepares a single stock series for Machine Learning.
-    - Input: A pandas Series of prices.
-    - Output: X (features: past returns) and y (target: 1 if Up, 0 if Down).
+    Prepares data to predict HIGH VOLATILITY.
+    - Input: Price Series
+    - Target: 1 if tomorrow's absolute return is in the top 20% of history (High Vol).
+    - Features: Past 5 days' absolute returns (volatility clusters).
     """
-    # Convert Series to DataFrame
     df = series.to_frame(name='Close')
     
-    # Calculate Daily Returns
-    df['Return'] = df['Close'].pct_change()
+    # Calculate absolute daily returns (magnitude of move)
+    df['Abs_Return'] = df['Close'].pct_change().abs()
     
-    # Create Lag Features (The "Inputs")
-    # We use the past 5 days' returns to predict the next day.
-    for i in range(1, lags + 1):
-        df[f'Lag_{i}'] = df['Return'].shift(i)
+    # Define "High Volatility" as the top 25% of moves
+    # This threshold is dynamic based on the stock's own history
+    threshold = df['Abs_Return'].quantile(0.75)
+    
+    # Target: 1 if tomorrow's move is big, 0 if normal
+    df['Target'] = (df['Abs_Return'].shift(-1) > threshold).astype(int)
+    
+    # Features: Recent volatility (Lag 1 to Lag 5)
+    for i in range(1, window + 1):
+        df[f'Vol_Lag_{i}'] = df['Abs_Return'].shift(i)
         
-    # Create Target (The "Output")
-    # If tomorrow's return (shift -1) is positive, Target is 1 (Up). Otherwise 0 (Down).
-    df['Target'] = (df['Return'].shift(-1) > 0).astype(int)
-    
-    # Drop rows with NaN (created by shifting)
     df = df.dropna()
     
-    # Split into Features (X) and Target (y)
-    feature_cols = [f'Lag_{i}' for i in range(1, lags + 1)]
-    X = df[feature_cols]
-    y = df['Target']
-    
-    return X, y
+    feature_cols = [f'Vol_Lag_{i}' for i in range(1, window + 1)]
+    return df[feature_cols], df['Target'], threshold
 
 # -----------------------------------------------------------------------------
 # SNIPPET 2: SIDEBAR CONTROLS
@@ -442,63 +440,58 @@ try:
         st.dataframe(formatted_metrics)
 
         # -----------------------------------------------------------------------------
-        # SNIPPET 7: MACHINE LEARNING (New Section)
+        # SNIPPET 7: MACHINE LEARNING (Updated for Volatility)
         # -----------------------------------------------------------------------------
         st.markdown("---")
-        st.header("🤖 Machine Learning: Price Direction Prediction")
+        st.header("🤖 Machine Learning: Volatility Prediction")
         
         st.write("""
-        This model predicts whether a stock will close **Higher (Up)** or **Lower (Down)** on the next trading day based on its returns from the previous 5 days.
+        This model predicts whether **Tomorrow's Volatility** will be **HIGH** (Top 25% of movements) or **NORMAL**.
+        It uses the past 5 days of volatility to learn patterns (Volatility Clustering).
         """)
         
         # 1. User Selects a Stock
-        # We only allow selecting from the loaded tickers (excluding Benchmark/Portfolio)
         ml_opts = [t for t in tickers if t in cleaned_df.columns]
         ml_ticker = st.selectbox("Select Stock to Predict", ml_opts, format_func=lambda x: smi_companies.get(x, x))
         
         if ml_ticker:
             # 2. Prepare Data
-            # We grab the price series for the selected stock
             subset_series = cleaned_df[ml_ticker]
             
-            # Call our helper function to create Lags (Features) and Target
-            X, y = prepare_ml_data(subset_series)
+            # Use our new helper function for Volatility Classification
+            X, y, threshold = prepare_volatility_data(subset_series)
             
-            if len(X) > 50: # Ensure we have enough data
-                # 3. Split Data (80% Train, 20% Test)
-                # CRITICAL: We split by time (first 80% days vs last 20% days), NOT randomly.
+            if len(X) > 50:
+                # 3. Split Data
                 split_index = int(len(X) * 0.8)
                 X_train, X_test = X.iloc[:split_index], X.iloc[split_index:]
                 y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
                 
-                # 4. Train Model
-                # Logistic Regression is a standard binary classifier
-                model = LogisticRegression()
+                # 4. Train Model (Random Forest is often better for this than LogReg)
+                model = RandomForestClassifier(n_estimators=100, random_state=42)
                 model.fit(X_train, y_train)
                 
-                # 5. Make Predictions
+                # 5. Evaluate
                 preds = model.predict(X_test)
-                
-                # 6. Evaluate
                 acc = accuracy_score(y_test, preds)
                 
                 # Display Results
-                st.markdown(f"#### Prediction Results for **{smi_companies.get(ml_ticker, ml_ticker)}**")
+                st.markdown(f"#### Volatility Forecast for **{smi_companies.get(ml_ticker, ml_ticker)}**")
+                st.write(f"**High Volatility Threshold:** > {threshold:.2%} move per day")
                 st.metric("Model Accuracy", f"{acc:.2%}")
                 
                 # Confusion Matrix
-                st.write("Confusion Matrix (Actual vs Predicted):")
+                st.write("**Confusion Matrix:**")
                 cm = confusion_matrix(y_test, preds)
                 cm_df = pd.DataFrame(cm, 
-                                     index=['Actual Down', 'Actual Up'], 
-                                     columns=['Predicted Down', 'Predicted Up'])
+                                     index=['Actual Normal', 'Actual High Vol'], 
+                                     columns=['Pred Normal', 'Pred High Vol'])
                 st.dataframe(cm_df)
                 
-                # Disclaimer
-                st.caption("Note: Financial markets are noisy. An accuracy > 50% is often considered 'good' in daily trading.")
+                st.caption("Volatility often 'clusters' (big moves follow big moves). This model tries to exploit that pattern.")
                 
             else:
-                st.warning("Not enough data points to train a model. Try selecting a longer date range.")
+                st.warning("Not enough data. Try a longer date range.")
 
 except Exception as e:
     # st.error shows a red error box if something crashes
