@@ -23,9 +23,12 @@ def calculate_metrics(df):
     """
     Takes a DataFrame of Stock Prices and calculates:
     - Annualized Return
+    - Cumulative Return
     - Annualized Volatility
     - Sharpe Ratio
+    - Sortino Ratio
     - Max Drawdown
+    - Value at Risk (VaR)
     """
     # 1. Calculate Daily Returns (Percentage change from previous day)
     returns = df.pct_change().dropna()
@@ -33,9 +36,12 @@ def calculate_metrics(df):
     # 2. Calculate Metrics
     # We assume 252 trading days in a year for annualization
     summary = pd.DataFrame(index=df.columns)
-    
+
+       # Cumulative Return: Total return over the entire period
+    # Formula: (1 + r1) * (1 + r2) ... - 1
+    summary['Cumulative Return'] = (1 + returns).prod() - 1
+
     # Annualized Return: Average daily return * 252 days
-    # (Simple interest approximation for readability)
     summary['Ann. Return'] = returns.mean() * 252
     
     # Annualized Volatility: Standard deviation of daily returns * Square root of 252
@@ -43,13 +49,25 @@ def calculate_metrics(df):
     
     # Sharpe Ratio: Return / Volatility (assuming 0% Risk Free Rate for simplicity)
     summary['Sharpe Ratio'] = summary['Ann. Return'] / summary['Ann. Volatility']
+
+    # Sortino Ratio: Return / Downside Volatility
+    # Downside Volatility only looks at days where the stock lost money.
+    downside_returns = returns.copy()
+    downside_returns[downside_returns > 0] = np.nan # Ignore positive returns
+    annual_downside_vol = downside_returns.std() * np.sqrt(252)
+    summary['Sortino Ratio'] = summary['Ann. Return'] / annual_downside_vol
     
     # Max Drawdown: The worst drop from a peak
     # We calculate the running maximum, then how far the current price is below that peak
-    cumulative_returns = (1 + returns).cumprod()
-    running_max = cumulative_returns.cummax()
-    drawdown = (cumulative_returns / running_max) - 1
+    cumulative_returns_series = (1 + returns).cumprod()
+    running_max = cumulative_returns_series.cummax()
+    drawdown = (cumulative_returns_series / running_max) - 1
     summary['Max Drawdown'] = drawdown.min()
+
+    # Value at Risk (VaR) at 95% Confidence
+    # The 5th percentile of daily returns.
+    # Meaning: "95% of the time, the daily loss will not be worse than this number."
+    summary['Value at Risk (95%)'] = returns.quantile(0.05)
     
     return summary
 
@@ -200,9 +218,12 @@ try:
         # .style.format() is a pandas trick to make tables look pretty without changing the data.
         formatted_metrics = metrics_df.style.format({
             'Ann. Return': '{:.2%}',
+            'Cumulative Return': '{:.2%}',
             'Ann. Volatility': '{:.2%}',
             'Sharpe Ratio': '{:.2f}',
-            'Max Drawdown': '{:.2%}'
+            'Sortino Ratio': '{:.2f}',
+            'Max Drawdown': '{:.2%}',
+            'Value at Risk (95%)': '{:.2%}'
         })
         
         # 3. Display the table
