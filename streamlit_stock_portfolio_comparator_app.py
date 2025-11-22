@@ -5,11 +5,13 @@
 # streamlit: The framework to build the web app.
 # pandas: The standard tool for handling tabular data (DataFrames).
 # yfinance: The library that fetches stock data from Yahoo Finance.
+# numpy: Needed for math calculations (sqrt, etc.).
+# altair: Needed for advanced charts like the Scatter Plot.
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import numpy as np # Needed for math calculations (sqrt, etc.)
-import altair as alt # Needed for the advanced Risk/Return scatter plot
+import numpy as np 
+import altair as alt 
 
 # This must be the first Streamlit command. It sets up the page title and layout.
 st.set_page_config(page_title="Stock Comparator", layout="wide")
@@ -18,56 +20,71 @@ st.set_page_config(page_title="Stock Comparator", layout="wide")
 st.title("📈 Stock & Portfolio Comparator")
 
 # -----------------------------------------------------------------------------
-# HELPER FUNCTIONS (New Section)
+# HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
 def calculate_metrics(df):
     """
-    Takes a DataFrame of Stock Prices and calculates:
-    - Annualized Return
-    - Cumulative Return
-    - Annualized Volatility
-    - Sharpe Ratio
-    - Sortino Ratio
-    - Max Drawdown
-    - Value at Risk (VaR)
+    Takes a DataFrame of Stock Prices and calculates key financial metrics.
+    Input: df where columns are tickers and rows are dates.
+    Output: DataFrame with metrics (Return, Risk, Sharpe, etc.) for each ticker.
     """
-    # 1. Calculate Daily Returns (Percentage change from previous day)
+    # 1. Calculate Daily Returns
+    # We don't care about the absolute price (e.g., 100 vs 200).
+    # We care about the percentage change from yesterday to today.
+    # .dropna() removes the first row (which has no "yesterday" to compare to).
     returns = df.pct_change().dropna()
     
-    # 2. Calculate Metrics
-    # We assume 252 trading days in a year for annualization
+    # Create an empty DataFrame to store our results
     summary = pd.DataFrame(index=df.columns)
     
-    # Annualized Return: Average daily return * 252 days
+    # 2. Annualized Return
+    # We calculate the average daily return and scale it up to a year.
+    # There are roughly 252 trading days in a year (excluding weekends/holidays).
     summary['Ann. Return'] = returns.mean() * 252
 
-    # Cumulative Return: Total return over the entire period
-    # Formula: (1 + r1) * (1 + r2) ... - 1
+    # 3. Cumulative Return
+    # The total percentage gain/loss over the entire selected period.
+    # Formula: (1 + r1) * (1 + r2) * ... - 1
     summary['Cumulative Return'] = (1 + returns).prod() - 1
     
-    # Annualized Volatility: Standard deviation of daily returns * Square root of 252
+    # 4. Annualized Volatility (Risk)
+    # Standard Deviation measures how much the stock jumps around.
+    # To annualize volatility, we multiply by the square root of time (sqrt(252)).
     summary['Ann. Volatility'] = returns.std() * np.sqrt(252)
     
-    # Sharpe Ratio: Return / Volatility (assuming 0% Risk Free Rate for simplicity)
+    # 5. Sharpe Ratio
+    # Measures "Return per unit of Risk".
+    # Formula: (Return - RiskFreeRate) / Volatility.
+    # We assume RiskFreeRate = 0 for simplicity.
     summary['Sharpe Ratio'] = summary['Ann. Return'] / summary['Ann. Volatility']
 
-    # Sortino Ratio: Return / Downside Volatility
-    # Downside Volatility only looks at days where the stock lost money.
+    # 6. Sortino Ratio
+    # Like Sharpe, but only penalizes "bad" volatility (downside risk).
+    # We assume that upside volatility (price jumping up) is good.
     downside_returns = returns.copy()
     downside_returns[downside_returns > 0] = np.nan # Ignore positive returns
+    
+    # Calculate standard deviation only for negative days
     annual_downside_vol = downside_returns.std() * np.sqrt(252)
     summary['Sortino Ratio'] = summary['Ann. Return'] / annual_downside_vol
     
-    # Max Drawdown: The worst drop from a peak
-    # We calculate the running maximum, then how far the current price is below that peak
+    # 7. Max Drawdown
+    # The "Worst Case Scenario": buying at the peak and selling at the bottom.
+    # We calculate the cumulative return (growth of $1).
     cumulative_returns_series = (1 + returns).cumprod()
+    
+    # running_max tracks the highest price seen SO FAR.
     running_max = cumulative_returns_series.cummax()
+    
+    # Drawdown is the percentage distance from the running_max.
     drawdown = (cumulative_returns_series / running_max) - 1
+    
+    # The minimum value (most negative) is the Maximum Drawdown.
     summary['Max Drawdown'] = drawdown.min()
 
-    # Value at Risk (VaR) at 95% Confidence
-    # The 5th percentile of daily returns.
-    # Meaning: "95% of the time, the daily loss will not be worse than this number."
+    # 8. Value at Risk (VaR)
+    # The 5th percentile of daily returns (95% confidence).
+    # Meaning: "95% of the time, your daily loss won't be worse than this."
     summary['Value at Risk (95%)'] = returns.quantile(0.05)
     
     return summary
@@ -76,15 +93,13 @@ def calculate_metrics(df):
 # SNIPPET 2: SIDEBAR CONTROLS
 # -----------------------------------------------------------------------------
 # We use 'with st.sidebar' to place everything inside this block on the left side.
-# This keeps the main area clean for data and charts.
 with st.sidebar:
     st.header("🎛️ Controls")
 
     # 1. TICKER SELECTION
-    # We define a dictionary. 
-    # Keys (left) are the ticker symbols yfinance needs.
-    # Values (right) are the readable names we want to show the user.
+    # Dictionary: Keys = Ticker Symbols (for code), Values = Full Names (for display).
     smi_companies = {
+        "^SSMI": "🇨🇭 Swiss Market Index (Benchmark)", # Added Benchmark
         "NESN.SW": "Nestlé",
         "ROG.SW": "Roche",
         "NOVN.SW": "Novartis",
@@ -107,153 +122,189 @@ with st.sidebar:
         "LOGN.SW": "Logitech"
     }
 
-    # st.multiselect creates a dropdown where users can pick multiple items.
-    # options: We pass the Keys of our dictionary (the tickers).
-    # format_func: This function tells Streamlit: "When you show the option 'NESN.SW',
-    #              instead show 'Nestlé (NESN.SW)' found in our dictionary."
+    # We filter the keys to exclude ^SSMI from the dropdown options.
+    # This ensures the user cannot manually select/deselect the Benchmark.
+    selectable_tickers = [t for t in smi_companies.keys() if t != "^SSMI"]
+
+    # st.multiselect creates the dropdown.
     tickers = st.multiselect(
         "Select Tickers", 
-        options=smi_companies.keys(), 
-        format_func=lambda x: f"{smi_companies[x]} ({x})",
-        default=["NESN.SW", "ROG.SW", "UBSG.SW"] # These are selected by default on load
+        options=selectable_tickers, 
+        format_func=lambda x: f"{smi_companies[x]} ({x})", # Show full names
+        default=["NESN.SW", "ROG.SW", "UBSG.SW"] 
     )
 
     # 2. DATE SELECTION
-    # We create two columns inside the sidebar to put Start and End dates side-by-side.
     col1, col2 = st.columns(2)
     with col1:
-        # Default start date is set to Jan 1, 2020
         start_date = st.date_input("Start Date", value=pd.to_datetime("2020-01-01"))
     with col2:
-        # Default end date is Today
         end_date = st.date_input("End Date", value=pd.to_datetime("today"))
 
 # -----------------------------------------------------------------------------
 # SNIPPET 3: LOADING DATA
 # -----------------------------------------------------------------------------
 # This function downloads the data. 
-# @st.cache_data is a "decorator". It tells Streamlit: "If I have downloaded this
-# specific list of tickers for these specific dates before, don't download it again.
-# Just grab the result from memory." This makes the app much faster.
+# @st.cache_data prevents redownloading on every interaction.
 @st.cache_data
 def load_data(ticker_list, start, end):
-    # Safety check: If the user deleted all tickers, return an empty table.
     if not ticker_list:
         return pd.DataFrame()
     
-    # yfinance allows downloading multiple tickers at once.
-    # auto_adjust=True: This adjusts prices for stock splits and dividends.
-    # This is crucial for long-term comparison (otherwise a split looks like a crash).
+    # yfinance download with auto_adjust=True to handle splits/dividends.
     data = yf.download(ticker_list, start=start, end=end, auto_adjust=True)
     
-    # Formatting Fix:
-    # If we select only 1 ticker, yfinance returns a DataFrame with columns like [Open, Close...].
-    # If we select 2+ tickers, it returns a Multi-Index DataFrame.
-    # We want to standardize this so we always get just the 'Close' prices.
-    
+    # Formatting Fix for Single Ticker vs Multiple Tickers
     if len(ticker_list) == 1:
-        # Keep only the Close column and rename it to the ticker name for consistency
         return data['Close'].to_frame(name=ticker_list[0])
     
-    # If multiple tickers, we just want the 'Close' price level.
     return data['Close']
 
 # -----------------------------------------------------------------------------
 # MAIN APP LOGIC
 # -----------------------------------------------------------------------------
-# We use a 'try-except' block to handle errors gracefully.
-# If the internet is down or Yahoo is blocking us, the app won't crash; it will show an error message.
 try:
-    # 1. CALL THE FUNCTION
-    stock_df = load_data(tickers, start_date, end_date)
+    # 1. PREPARE TICKER LIST
+    # We take the user's selection AND forcefully add the SMI Index.
+    # set() removes duplicates just in case.
+    tickers_to_load = list(set(tickers + ["^SSMI"]))
+
+    # 2. CALL THE FUNCTION
+    stock_df = load_data(tickers_to_load, start_date, end_date)
     
-    # 2. CHECK IF DATA IS EMPTY
+    # 3. CHECK IF DATA IS EMPTY
     if stock_df.empty:
-        # st.warning shows a yellow warning box
         st.warning("No data found. Please check your date range or tickers.")
     else:
-        # st.success shows a green success bar
-        st.success(f"Data loaded successfully for {len(tickers)} tickers!")
+        st.success(f"Data loaded successfully for {len(tickers_to_load)} tickers (including Benchmark)!")
         
-        # 3. RAW DATA PREVIEW
-        # st.expander creates a collapsible box. Good for hiding details like raw data tables.
+        # Raw Data Preview (Hidden by default)
         with st.expander("📄 View Raw Data Preview"):
              st.dataframe(stock_df.head())
 
         # -----------------------------------------------------------------------------
-        # SNIPPET 4: DATA VISUALIZATION
+        # SNIPPET 4: DYNAMIC KPI VISUALIZER
         # -----------------------------------------------------------------------------
-        st.subheader("📊 Relative Performance (Indexed to 100)")
+        st.subheader("📊 KPI Visualizer over Time")
         
-        # PROBLEM: Raw prices are hard to compare (Nestlé is ~80 CHF, Givaudan is ~3000 CHF).
-        # SOLUTION: Normalize them so they all start at 100.
-        # Formula: (Price_Today / Price_Day_1) * 100
-        
-        # 1. Drop rows with missing values (NaN).
-        #    This ensures all lines start at the same date (e.g. if one company IPO'd later).
+        # Drop rows with missing values to ensure fair comparison (same start date)
         cleaned_df = stock_df.dropna()
         
         if not cleaned_df.empty:
-            # 2. RENAME COLUMNS FOR DISPLAY
-            # We swap the Ticker (NESN.SW) for the Name (Nestlé) using our dictionary.
-            # This makes the chart legend readable.
-            display_df = cleaned_df.rename(columns=smi_companies)
+            # Metric Selection Dropdown
+            metric_options = [
+                "Cumulative Return (Indexed to 100)",
+                "Annualized Return (30-Day Rolling)",
+                "Volatility (30-Day Rolling)",
+                "Sharpe Ratio (30-Day Rolling)",
+                "Sortino Ratio (30-Day Rolling)",
+                "Drawdown (Historical)",
+                "Value at Risk 95% (30-Day Rolling)"
+            ]
             
-            # 3. Normalize
-            # .iloc[0] selects the very first row (Day 1).
-            # Dividing the whole DataFrame by this row indexes everything to 1.
-            # Multiplying by 100 indexes everything to 100.
-            normalized_df = display_df / display_df.iloc[0] * 100
+            selected_metric = st.selectbox("Select Metric to Plot", metric_options)
             
-            # 4. Plot
-            # st.line_chart is a built-in wrapper for Altair charts. It's interactive by default.
-            st.line_chart(normalized_df)
+            # Calculate Daily Returns (needed for most metrics)
+            returns = cleaned_df.pct_change().dropna()
+            window = 30 # Window size for rolling calculations
+            
+            # Logic for each Metric
+            if selected_metric == "Cumulative Return (Indexed to 100)":
+                plot_data = cleaned_df / cleaned_df.iloc[0] * 100
+                
+            elif selected_metric == "Annualized Return (30-Day Rolling)":
+                plot_data = returns.rolling(window=window).mean() * 252
+            
+            elif selected_metric == "Volatility (30-Day Rolling)":
+                plot_data = returns.rolling(window=window).std() * np.sqrt(252)
+                
+            elif selected_metric == "Sharpe Ratio (30-Day Rolling)":
+                rolling_return = returns.rolling(window=window).mean() * 252
+                rolling_vol = returns.rolling(window=window).std() * np.sqrt(252)
+                plot_data = rolling_return / rolling_vol
+            
+            elif selected_metric == "Sortino Ratio (30-Day Rolling)":
+                downside = returns.copy()
+                downside[downside > 0] = np.nan
+                rolling_downside_vol = downside.rolling(window=window).std() * np.sqrt(252)
+                rolling_return = returns.rolling(window=window).mean() * 252
+                plot_data = rolling_return / rolling_downside_vol
+                
+            elif selected_metric == "Drawdown (Historical)":
+                cumulative_rets = (1 + returns).cumprod()
+                running_max = cumulative_rets.cummax()
+                plot_data = (cumulative_rets / running_max) - 1
+                
+            elif selected_metric == "Value at Risk 95% (30-Day Rolling)":
+                plot_data = returns.rolling(window=window).quantile(0.05)
+
+            # Rename columns and plot
+            plot_data = plot_data.rename(columns=smi_companies)
+            st.line_chart(plot_data)
+            
         else:
             st.info("Not enough shared data points to plot a comparison. Try adjusting dates.")
 
         # -----------------------------------------------------------------------------
         # SNIPPET 5: CALCULATE RISK & RETURN METRICS
         # -----------------------------------------------------------------------------
-        st.subheader("📉 Risk & Return Metrics")
+        st.subheader("📉 Risk & Return Analysis")
         
-        # 1. Call our helper function
+        # 1. Call helper function
         metrics_df = calculate_metrics(cleaned_df)
-        
-        # 2. Rename the Index (Rows) to Full Company Names
         metrics_df = metrics_df.rename(index=smi_companies)
 
-        # 3. NEW: SCATTER PLOT (Risk vs Return)
-        # We need to transform the data slightly for the scatter plot.
-        # FIX 1: Explicitly name the index 'Company'
+        # 2. SCATTER PLOT CONFIGURATION
         metrics_df.index.name = "Company"
         scatter_data = metrics_df.reset_index()
         
-        # FIX 2: Rename columns to remove dots (.) because dots break Altair/Vega-Lite parsing
-        scatter_data = scatter_data.rename(columns={
-            "Ann. Return": "Return", 
-            "Ann. Volatility": "Volatility",
-            "Sharpe Ratio": "Sharpe"
-        })
+        # Map the internal column names to nice labels for the chart
+        # We replace dots with spaces or underscores to avoid Altair errors
+        col_mapping = {
+            'Ann. Return': 'Annualized Return',
+            'Cumulative Return': 'Cumulative Return',
+            'Ann. Volatility': 'Annualized Volatility',
+            'Sharpe Ratio': 'Sharpe Ratio',
+            'Sortino Ratio': 'Sortino Ratio',
+            'Max Drawdown': 'Max Drawdown',
+            'Value at Risk (95%)': 'Value at Risk 95%'
+        }
         
-        # Create an Altair Chart using the CLEAN column names
-        # X-Axis: Volatility (Risk)
-        # Y-Axis: Return (Reward)
-        # Color: Company
+        # Rename the columns in our data to match the nice labels
+        scatter_data = scatter_data.rename(columns=col_mapping)
+        
+        # 3. Create Dropdowns for X and Y Axes
+        st.markdown("##### Compare Metrics (Scatter Plot)")
+        col_x, col_y = st.columns(2)
+        
+        # Get the list of available options (the nice labels)
+        chart_opts = list(col_mapping.values())
+        
+        with col_x:
+            # Default X: Volatility
+            x_axis = st.selectbox("X-Axis", chart_opts, index=chart_opts.index('Annualized Volatility'))
+        with col_y:
+            # Default Y: Return
+            y_axis = st.selectbox("Y-Axis", chart_opts, index=chart_opts.index('Annualized Return'))
+            
+        # 4. Dynamic Formatting
+        # If the user selects a Ratio (Sharpe/Sortino), display as number (2.50).
+        # Otherwise display as percentage (15%).
+        x_format = ".2f" if "Ratio" in x_axis else "%"
+        y_format = ".2f" if "Ratio" in y_axis else "%"
+        
+        # 5. Create Altair Chart
         chart = alt.Chart(scatter_data).mark_circle(size=100).encode(
-            x=alt.X('Volatility', title='Risk (Annualized Volatility)', axis=alt.Axis(format='%')),
-            y=alt.Y('Return', title='Return (Annualized)', axis=alt.Axis(format='%')),
+            x=alt.X(x_axis, title=x_axis, axis=alt.Axis(format=x_format)),
+            y=alt.Y(y_axis, title=y_axis, axis=alt.Axis(format=y_format)),
             color='Company',
-            tooltip=['Company', 
-                     alt.Tooltip('Return', format='.2%'), 
-                     alt.Tooltip('Volatility', format='.2%'), 
-                     alt.Tooltip('Sharpe', format='.2f')]
+            # Tooltip will show all metrics for easy inspection
+            tooltip=['Company'] + chart_opts
         ).interactive() 
         
         st.altair_chart(chart, use_container_width=True)
         
-        # 4. Format the numbers for the Table display
-        # We want percentages (e.g., 0.12 -> "12.00%") and 2 decimal places.
-        # .style.format() is a pandas trick to make tables look pretty without changing the data.
+        # 6. Format and Display Summary Table
         formatted_metrics = metrics_df.style.format({
             'Ann. Return': '{:.2%}',
             'Cumulative Return': '{:.2%}',
@@ -264,9 +315,8 @@ try:
             'Value at Risk (95%)': '{:.2%}'
         })
         
-        # 5. Display the table
+        st.markdown("##### Detailed Metrics Table")
         st.dataframe(formatted_metrics)
 
 except Exception as e:
-    # st.error shows a red error box if something crashes
     st.error(f"An error occurred: {e}")
