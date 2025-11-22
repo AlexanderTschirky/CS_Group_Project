@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np # Needed for math calculations (sqrt, etc.)
+import altair as alt # Needed for the advanced Risk/Return scatter plot
 
 # This must be the first Streamlit command. It sets up the page title and layout.
 st.set_page_config(page_title="Stock Comparator", layout="wide")
@@ -36,13 +37,13 @@ def calculate_metrics(df):
     # 2. Calculate Metrics
     # We assume 252 trading days in a year for annualization
     summary = pd.DataFrame(index=df.columns)
-
-       # Cumulative Return: Total return over the entire period
-    # Formula: (1 + r1) * (1 + r2) ... - 1
-    summary['Cumulative Return'] = (1 + returns).prod() - 1
-
+    
     # Annualized Return: Average daily return * 252 days
     summary['Ann. Return'] = returns.mean() * 252
+
+    # Cumulative Return: Total return over the entire period
+    # Formula: (1 + r1) * (1 + r2) ... - 1
+    summary['Cumulative Return'] = (1 + returns).prod() - 1
     
     # Annualized Volatility: Standard deviation of daily returns * Square root of 252
     summary['Ann. Volatility'] = returns.std() * np.sqrt(252)
@@ -193,13 +194,18 @@ try:
         cleaned_df = stock_df.dropna()
         
         if not cleaned_df.empty:
-            # 2. Normalize
+            # 2. RENAME COLUMNS FOR DISPLAY
+            # We swap the Ticker (NESN.SW) for the Name (Nestlé) using our dictionary.
+            # This makes the chart legend readable.
+            display_df = cleaned_df.rename(columns=smi_companies)
+            
+            # 3. Normalize
             # .iloc[0] selects the very first row (Day 1).
             # Dividing the whole DataFrame by this row indexes everything to 1.
             # Multiplying by 100 indexes everything to 100.
-            normalized_df = cleaned_df / cleaned_df.iloc[0] * 100
+            normalized_df = display_df / display_df.iloc[0] * 100
             
-            # 3. Plot
+            # 4. Plot
             # st.line_chart is a built-in wrapper for Altair charts. It's interactive by default.
             st.line_chart(normalized_df)
         else:
@@ -210,10 +216,36 @@ try:
         # -----------------------------------------------------------------------------
         st.subheader("📉 Risk & Return Metrics")
         
-        # 1. Call our new helper function
+        # 1. Call our helper function
+        # Note: We pass 'cleaned_df' (Tickers) not 'display_df' (Names) if we want to process logic later,
+        # but for simple display, we can just map the index afterwards.
         metrics_df = calculate_metrics(cleaned_df)
         
-        # 2. Format the numbers for display
+        # 2. Rename the Index (Rows) to Full Company Names
+        metrics_df = metrics_df.rename(index=smi_companies)
+
+        # 3. NEW: SCATTER PLOT (Risk vs Return)
+        # We need to transform the data slightly for the scatter plot
+        # We reset the index so 'Company Name' becomes a column, not the index.
+        scatter_data = metrics_df.reset_index().rename(columns={'index': 'Company'})
+        
+        # Create an Altair Chart
+        # X-Axis: Annualized Volatility (Risk)
+        # Y-Axis: Annualized Return (Reward)
+        # Color: Company
+        chart = alt.Chart(scatter_data).mark_circle(size=100).encode(
+            x=alt.X('Ann. Volatility', title='Risk (Annualized Volatility)', axis=alt.Axis(format='%')),
+            y=alt.Y('Ann. Return', title='Return (Annualized)', axis=alt.Axis(format='%')),
+            color='Company',
+            tooltip=['Company', 
+                     alt.Tooltip('Ann. Return', format='.2%'), 
+                     alt.Tooltip('Ann. Volatility', format='.2%'), 
+                     alt.Tooltip('Sharpe Ratio', format='.2f')]
+        ).interactive() # Allows zooming and panning
+        
+        st.altair_chart(chart, use_container_width=True)
+        
+        # 4. Format the numbers for the Table display
         # We want percentages (e.g., 0.12 -> "12.00%") and 2 decimal places.
         # .style.format() is a pandas trick to make tables look pretty without changing the data.
         formatted_metrics = metrics_df.style.format({
@@ -226,7 +258,7 @@ try:
             'Value at Risk (95%)': '{:.2%}'
         })
         
-        # 3. Display the table
+        # 5. Display the table
         st.dataframe(formatted_metrics)
 
 except Exception as e:
