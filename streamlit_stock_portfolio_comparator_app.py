@@ -345,9 +345,9 @@ try:
         chart = alt.Chart(scatter_data).mark_circle(size=100).encode(
             x=alt.X(x_axis, title=x_axis, axis=alt.Axis(format=x_format)),
             y=alt.Y(y_axis, title=y_axis, axis=alt.Axis(format=y_format)),
-            color='Company',
+            color='Stock',
             # Tooltip will show all metrics for easy inspection
-            tooltip=['Company'] + chart_opts
+            tooltip=['Stock'] + chart_opts
         ).interactive() 
         
         st.altair_chart(chart, use_container_width=True)
