@@ -421,4 +421,3 @@ try:
 except Exception as e:
     # st.error shows a red error box if something crashes
     st.error(f"An error occurred: {e}")
-
