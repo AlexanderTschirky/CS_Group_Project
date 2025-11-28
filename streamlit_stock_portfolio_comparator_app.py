@@ -31,22 +31,22 @@ def calculate_KPI(df): #
     returns = df.pct_change().dropna() # We calculate the precentage change in price from yesterday to today. The command ".dropna()" removes the first row, which has no yesterday to compare to.
     
     # 2. Annualized Return
-    summary['Annualized Return'] = returns.mean() * 252 # We calculate the average daily return and scale it up to a year. We asssume 252 trading days in a year.
+    summary['Ann. Return'] = returns.mean() * 252 # We calculate the average daily return and scale it up to a year. We asssume 252 trading days in a year.
 
     # 3. Cumulative Return
     summary['Cumulative Return'] = (1 + returns).prod() - 1 # We calculate the total percentage gain/loss over the selected period.
     
     # 4. Annualized Volatility (Risk)
-    summary['Annualized Volatility'] = returns.std() * np.sqrt(252) # We calculate the annualized volatility. We assume 252 trading days in a year.
+    summary['Ann. Volatility'] = returns.std() * np.sqrt(252) # We calculate the annualized volatility. We assume 252 trading days in a year.
     
     # 5. Sharpe Ratio
-    summary['Sharpe Ratio'] = summary['Annualized Return'] / summary['Annualized Volatility'] # We calculate the Sharpe Ratio. A Risk Free Rate of 0% is assumed for simplicity.
+    summary['Sharpe Ratio'] = summary['Ann. Return'] / summary['Ann. Volatility'] # We calculate the Sharpe Ratio. A Risk Free Rate of 0% is assumed for simplicity.
 
     # 6. Sortino Ratio
     downside_returns = returns.copy() # We copy the returns into the new variable "downside_returns" to further process the data.
     downside_returns[downside_returns > 0] = np.nan # For the Sortino Ratio, we neglect upside volatility, therefore we do not consider positive returns for the calculation.
     annual_downside_vol = downside_returns.std() * np.sqrt(252) # We calculate the annual volatility only for negative days.
-    summary['Sortino Ratio'] = summary['Annualized Return'] / annual_downside_vol # We calculate the Sortino Ratio.
+    summary['Sortino Ratio'] = summary['Ann. Return'] / annual_downside_vol # We calculate the Sortino Ratio.
     
     # 7. Max Drawdown
     # The "Worst Case Scenario": buying at the peak and selling at the bottom.
@@ -302,16 +302,20 @@ try:
         metrics_df.index.name = "Stock" # We name the index "Stock".
         scatter_data = metrics_df.reset_index() # We reset the index so that "Stock" is a column, not an index.
         
-        # We map the column names to labels for the chart
+        # Map the internal column names to nice labels for the chart
+        # We replace dots with spaces or underscores to avoid Altair errors
         col_mapping = {
-            'Annualized Return',
-            'Cumulative Return',
-            'Annualized Volatility',
-            'Sharpe Ratio',
-            'Sortino Ratio',
-            'Max Drawdown',
-            'Value at Risk (95%)'
+            'Ann. Return': 'Annualized Return',
+            'Cumulative Return': 'Cumulative Return',
+            'Ann. Volatility': 'Annualized Volatility',
+            'Sharpe Ratio': 'Sharpe Ratio',
+            'Sortino Ratio': 'Sortino Ratio',
+            'Max Drawdown': 'Max Drawdown',
+            'Value at Risk (95%)': 'Value at Risk 95%'
         }
+        
+        # Rename the columns in our data to match the nice labels
+        scatter_data = scatter_data.rename(columns=col_mapping)
         
         # 3. Create Dropdowns for X and Y Axes
         st.markdown("##### Compare Metrics (Scatter Plot)")
