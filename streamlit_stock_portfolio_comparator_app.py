@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import numpy as np
-import matplotlib.pyplot as plt
+import altair as alt
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 
@@ -311,30 +311,21 @@ with tab1:
         elif selected_metric == "Value at Risk 95% (30-Day Rolling)":
             plot_data = returns.rolling(window=window).quantile(0.05)
             
-        # Plotting using Matplotlib
-        fig, ax = plt.subplots(figsize=(10, 5))
+        # --- ALTAIR CHART ---
+        # Convert to long format for Altair
+        plot_long = plot_data.reset_index().melt('Date', var_name='Asset', value_name='Value')
         
-        for column in plot_data.columns:
-            # Skip columns with all NaNs (common at start of rolling window)
-            if plot_data[column].isnull().all():
-                continue
-                
-            label_name = legend_map.get(column, column)
-            if column == "💼 My Portfolio":
-                ax.plot(plot_data.index, plot_data[column], label=label_name, linewidth=2.5, linestyle='--')
-            else:
-                ax.plot(plot_data.index, plot_data[column], label=label_name, alpha=0.7)
+        # Apply readable names
+        plot_long['Asset Name'] = plot_long['Asset'].map(lambda x: legend_map.get(x, x))
         
-        ax.set_title(f"{selected_metric} over Time")
-        ax.set_xlabel("Date")
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax.grid(True, linestyle='--', alpha=0.6)
+        chart = alt.Chart(plot_long).mark_line().encode(
+            x='Date:T',
+            y=alt.Y('Value:Q', title=selected_metric),
+            color='Asset Name:N',
+            tooltip=['Date:T', 'Asset Name:N', alt.Tooltip('Value:Q', format='.2f')]
+        ).interactive()
         
-        # Formatting Y-Axis based on metric type
-        if "Ratio" not in selected_metric and "Indexed" not in selected_metric:
-             ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.1%}'.format(y)))
-             
-        st.pyplot(fig)
+        st.altair_chart(chart, use_container_width=True)
 
     # Raw Data Download
     with st.expander("See Raw Data"):
@@ -380,25 +371,33 @@ with tab2:
             corr_df.index = corr_df.index.map(lambda x: SMI_COMPANIES.get(x, x))
             corr_df.columns = corr_df.columns.map(lambda x: SMI_COMPANIES.get(x, x))
             
-            fig_corr, ax_corr = plt.subplots(figsize=(8, 6))
-            cax = ax_corr.imshow(corr_df, cmap='RdBu_r', vmin=-1, vmax=1)
-            fig_corr.colorbar(cax)
-            
-            # Ticks
-            ax_corr.set_xticks(np.arange(len(corr_df.columns)))
-            ax_corr.set_yticks(np.arange(len(corr_df.index)))
-            ax_corr.set_xticklabels(corr_df.columns, rotation=45, ha="right")
-            ax_corr.set_yticklabels(corr_df.index)
-            
-            # Text Annotations
-            for i in range(len(corr_df.index)):
-                for j in range(len(corr_df.columns)):
-                    val = corr_df.iloc[i, j]
-                    text_color = "white" if abs(val) > 0.5 else "black"
-                    ax_corr.text(j, i, f"{val:.2f}", ha="center", va="center", color=text_color)
-            
-            ax_corr.set_title("Correlation Heatmap")
-            st.pyplot(fig_corr)
+            # Prepare for Altair
+            corr_melt = corr_df.reset_index().rename(columns={'index': 'Asset 1'}).melt(
+                id_vars='Asset 1', var_name='Asset 2', value_name='Correlation'
+            )
+
+            base = alt.Chart(corr_melt).encode(
+                x='Asset 1:O',
+                y='Asset 2:O'
+            )
+
+            # Heatmap
+            heatmap = base.mark_rect().encode(
+                color=alt.Color('Correlation:Q', scale=alt.Scale(scheme='redblue', domain=[-1, 1])),
+                tooltip=['Asset 1', 'Asset 2', alt.Tooltip('Correlation', format='.2f')]
+            )
+
+            # Text Labels
+            text = base.mark_text(baseline='middle').encode(
+                text=alt.Text('Correlation:Q', format='.2f'),
+                color=alt.condition(
+                    alt.datum.Correlation > 0.5, 
+                    alt.value('white'),
+                    alt.value('black')
+                )
+            )
+
+            st.altair_chart(heatmap + text, use_container_width=True)
         else:
             st.info("Select stocks to see correlation.")
 
@@ -408,30 +407,19 @@ with tab2:
     scatter_data = kpi_df.reset_index().rename(columns={'index': 'Asset'})
     scatter_data['Asset Name'] = scatter_data['Asset'].map(lambda x: legend_map.get(x, x))
     
-    fig_scatter, ax_scatter = plt.subplots(figsize=(10, 6))
-    
-    x_vals = scatter_data['Ann. Volatility']
-    y_vals = scatter_data['Ann. Return']
-    
-    # Plot dots
-    ax_scatter.scatter(x_vals, y_vals, s=100, alpha=0.7, c='dodgerblue', edgecolors='k')
-    
-    # Add labels
-    for i, txt in enumerate(scatter_data['Asset Name']):
-        ax_scatter.annotate(txt, (x_vals[i], y_vals[i]), xytext=(5, 5), textcoords='offset points')
-        
-    ax_scatter.axhline(0, color='gray', linestyle='--', alpha=0.5)
-    ax_scatter.axvline(0, color='gray', linestyle='--', alpha=0.5)
-    
-    ax_scatter.set_xlabel("Annualized Volatility (Risk)")
-    ax_scatter.set_ylabel("Annualized Return")
-    ax_scatter.set_title("Risk-Return Tradeoff")
-    ax_scatter.grid(True, alpha=0.3)
-    
-    ax_scatter.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: '{:.0%}'.format(x)))
-    ax_scatter.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
+    # Altair Scatter
+    scatter = alt.Chart(scatter_data).mark_circle(size=100).encode(
+        x=alt.X('Ann. Volatility', axis=alt.Axis(format='%', title='Risk (Ann. Volatility)')),
+        y=alt.Y('Ann. Return', axis=alt.Axis(format='%', title='Return (Ann. Return)')),
+        color='Asset Name',
+        tooltip=['Asset Name', 'Ann. Return', 'Ann. Volatility', 'Sharpe Ratio', 'Max Drawdown']
+    ).interactive()
 
-    st.pyplot(fig_scatter)
+    # Add Crosshairs (0,0)
+    rule_x = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(strokeDash=[5, 5]).encode(x='x')
+    rule_y = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(strokeDash=[5, 5]).encode(y='y')
+
+    st.altair_chart(scatter + rule_x + rule_y, use_container_width=True)
 
 # --- TAB 3: MACHINE LEARNING ---
 with tab3:
@@ -479,19 +467,18 @@ with tab3:
                 c2.metric("Model Accuracy (MAE)", f"{mae:.2%}", delta_color="inverse")
                 c3.metric("Current Hist. Volatility (Last 21d)", f"{series.pct_change().abs().tail(21).mean():.2%}")
                 
-                # Plot Actual vs Predicted on Test Set (Matplotlib)
-                fig_ml, ax_ml = plt.subplots(figsize=(10, 5))
-                ax_ml.plot(y_test.index, y_test.values, label='Actual Volatility', alpha=0.7)
-                ax_ml.plot(y_test.index, preds, label='Predicted Volatility', linestyle='--', color='orange')
+                # Altair Chart for Prediction
+                res_df = pd.DataFrame({'Date': y_test.index, 'Actual': y_test.values, 'Predicted': preds})
+                res_melt = res_df.melt('Date', var_name='Type', value_name='Volatility')
                 
-                ax_ml.set_title("Model Validation: Actual vs Predicted Volatility (Test Set)")
-                ax_ml.set_ylabel("Volatility")
-                ax_ml.legend()
-                ax_ml.grid(True, alpha=0.3)
+                ml_chart = alt.Chart(res_melt).mark_line().encode(
+                    x='Date:T',
+                    y=alt.Y('Volatility:Q', axis=alt.Axis(format='%')),
+                    color='Type:N',
+                    tooltip=['Date:T', 'Type:N', alt.Tooltip('Volatility:Q', format='.2%')]
+                ).properties(title="Model Validation: Actual vs Predicted Volatility (Test Set)").interactive()
                 
-                ax_ml.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: '{:.1%}'.format(y)))
-                
-                st.pyplot(fig_ml)
+                st.altair_chart(ml_chart, use_container_width=True)
                 
             else:
                 st.error("Not enough historical data to train model. Try selecting an older start date.")
