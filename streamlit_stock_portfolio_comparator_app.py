@@ -1,4 +1,3 @@
-# -----------------------------------------------------------------------------
 # IMPORTS & CONFIGURATION
 # -----------------------------------------------------------------------------
 import streamlit as st
@@ -6,8 +5,7 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 import altair as alt
-import plotly.express as px
-import plotly.graph_objects as go
+# Removed plotly imports to fix ModuleNotFoundError
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 
@@ -271,13 +269,13 @@ if display_df.empty:
 tab1, tab2, tab3 = st.tabs(["📊 Performance & Charts", "📉 Risk & Correlation", "🤖 AI Volatility Predictor"])
 
 with tab1:
-    # --- MAIN CHART (Plotly) ---
+    # --- MAIN CHART (Altair) ---
     st.subheader("Price Evolution (Indexed to 100)")
     
     # Normalize data to start at 100 for comparison
     normalized_df = display_df / display_df.iloc[0] * 100
     
-    # Convert to long format for Plotly
+    # Convert to long format for Altair
     plot_data = normalized_df.reset_index().melt('Date', var_name='Asset', value_name='Normalized Price')
     
     # Map ticker symbols to readable names for the legend
@@ -286,14 +284,15 @@ with tab1:
     legend_map["💼 My Portfolio"] = "💼 My Portfolio"
     plot_data['Asset Name'] = plot_data['Asset'].map(lambda x: legend_map.get(x, x))
 
-    fig = px.line(
-        plot_data, 
-        x="Date", y="Normalized Price", color="Asset Name",
-        hover_data={"Date": "|%B %d, %Y"},
-        title="Comparative Performance"
-    )
-    fig.update_layout(hovermode="x unified")
-    st.plotly_chart(fig, use_container_width=True)
+    # Replaced Plotly with Altair
+    chart = alt.Chart(plot_data).mark_line().encode(
+        x='Date:T',
+        y=alt.Y('Normalized Price:Q', title='Normalized Price (Start=100)'),
+        color='Asset Name:N',
+        tooltip=['Date:T', 'Asset Name:N', 'Normalized Price:Q']
+    ).interactive()
+    
+    st.altair_chart(chart, use_container_width=True)
 
     # --- RAW DATA DOWNLOAD ---
     with st.expander("See Raw Data"):
@@ -342,14 +341,28 @@ with tab2:
             corr_df.index = corr_df.index.map(lambda x: SMI_COMPANIES.get(x, x))
             corr_df.columns = corr_df.columns.map(lambda x: SMI_COMPANIES.get(x, x))
             
-            fig_corr = px.imshow(
-                corr_df, 
-                text_auto='.2f', 
-                aspect="auto", 
-                color_continuous_scale='RdBu_r',
-                zmin=-1, zmax=1
+            # Replaced Plotly Heatmap with Altair Heatmap
+            corr_melt = corr_df.reset_index().rename(columns={'index': 'Asset 1'}).melt(
+                id_vars='Asset 1', var_name='Asset 2', value_name='Correlation'
             )
-            st.plotly_chart(fig_corr, use_container_width=True)
+
+            heatmap = alt.Chart(corr_melt).mark_rect().encode(
+                x='Asset 1:O',
+                y='Asset 2:O',
+                color=alt.Color('Correlation:Q', scale=alt.Scale(scheme='redblue', domain=[-1, 1])),
+                tooltip=['Asset 1', 'Asset 2', alt.Tooltip('Correlation', format='.2f')]
+            )
+
+            text = heatmap.mark_text(baseline='middle').encode(
+                text=alt.Text('Correlation:Q', format='.2f'),
+                color=alt.condition(
+                    alt.datum.Correlation > 0.5, 
+                    alt.value('white'),
+                    alt.value('black')
+                )
+            )
+
+            st.altair_chart(heatmap + text, use_container_width=True)
         else:
             st.info("Select stocks to see correlation.")
 
@@ -360,21 +373,19 @@ with tab2:
     scatter_data = kpi_df.reset_index().rename(columns={'index': 'Asset'})
     scatter_data['Asset Name'] = scatter_data['Asset'].map(lambda x: legend_map.get(x, x))
     
-    fig_scatter = px.scatter(
-        scatter_data,
-        x="Ann. Volatility",
-        y="Ann. Return",
-        color="Asset Name",
-        size="Sharpe Ratio", # Bubble size based on efficiency
-        text="Asset Name",
-        hover_data=["Max Drawdown", "Sharpe Ratio"],
-        title="Risk (Volatility) vs Return"
-    )
+    # Replaced Plotly Scatter with Altair Scatter
+    scatter = alt.Chart(scatter_data).mark_circle(size=100).encode(
+        x=alt.X('Ann. Volatility', axis=alt.Axis(format='%', title='Risk (Ann. Volatility)')),
+        y=alt.Y('Ann. Return', axis=alt.Axis(format='%', title='Return (Ann. Return)')),
+        color='Asset Name',
+        tooltip=['Asset Name', 'Ann. Return', 'Ann. Volatility', 'Sharpe Ratio', 'Max Drawdown']
+    ).interactive()
+
     # Add crosshairs at 0
-    fig_scatter.add_hline(y=0, line_dash="dash", line_color="gray")
-    fig_scatter.add_vline(x=0, line_dash="dash", line_color="gray")
-    fig_scatter.update_traces(textposition='top center')
-    st.plotly_chart(fig_scatter, use_container_width=True)
+    rule_x = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(strokeDash=[5, 5]).encode(x='x')
+    rule_y = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(strokeDash=[5, 5]).encode(y='y')
+
+    st.altair_chart(scatter + rule_x + rule_y, use_container_width=True)
 
 with tab3:
     st.subheader("🤖 AI Volatility Forecast")
@@ -423,10 +434,18 @@ with tab3:
                 c3.metric("Current Hist. Volatility (Last 21d)", f"{series.pct_change().abs().tail(21).mean():.2%}")
                 
                 # Plot Actual vs Predicted on Test Set
-                res_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
+                res_df = pd.DataFrame({'Date': y_test.index, 'Actual': y_test.values, 'Predicted': preds})
+                res_melt = res_df.melt('Date', var_name='Type', value_name='Volatility')
                 
-                fig_ml = px.line(res_df, title="Model Validation: Actual vs Predicted Volatility (Test Set)")
-                st.plotly_chart(fig_ml, use_container_width=True)
+                # Replaced Plotly Line with Altair Line
+                ml_chart = alt.Chart(res_melt).mark_line().encode(
+                    x='Date:T',
+                    y=alt.Y('Volatility:Q', axis=alt.Axis(format='%')),
+                    color='Type:N',
+                    tooltip=['Date:T', 'Type:N', alt.Tooltip('Volatility:Q', format='.2%')]
+                ).properties(title="Model Validation: Actual vs Predicted Volatility (Test Set)").interactive()
+                
+                st.altair_chart(ml_chart, use_container_width=True)
                 
             else:
                 st.error("Not enough historical data to train model. Try selecting an older start date.")
