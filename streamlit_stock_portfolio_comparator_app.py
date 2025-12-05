@@ -482,7 +482,7 @@ try:
         # PAGE 4: VOLATILITY FORECASTING
         # -----------------------------------------------------------------------------
         elif page == "Volatility Forecasting":
-            st.subheader("🤖 Machine Learning: Volatility Prediction") 
+            st.subheader("Volatility Prediction") 
             
             st.write("""
             This model predicts the **Exact Volatility** (Average Absolute Daily Return) over a specific time horizon.
@@ -493,7 +493,7 @@ try:
             col_ml_1, col_ml_2 = st.columns(2)
             
             with col_ml_1:
-                ml_ticker = st.selectbox("Select Stock to Predict", ml_opts, format_func=lambda x: smi_companies.get(x, x)) 
+                ml_ticker = st.selectbox("Select Asset to Predict", ml_opts, format_func=lambda x: smi_companies.get(x, x)) 
             
             with col_ml_2:
                 horizon_dict = {"Next Day": 1, "Next Week (5 Days)": 5, "Next Month (21 Days)": 21}
