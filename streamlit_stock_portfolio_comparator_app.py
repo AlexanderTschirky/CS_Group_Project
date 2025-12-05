@@ -187,7 +187,7 @@ with st.sidebar:
             st.write(f"**Total Allocation:** {current_total:.1f}%") 
             
             if abs(current_total - 100.0) > 0.1: 
-                st.error("⚠️ Total must be exactly 100%") 
+                st.error("Total must be exactly 100%") 
             else:
                 st.success("Portfolio Ready") 
     else:
@@ -195,7 +195,7 @@ with st.sidebar:
 
     # 4. MARKET ASSUMPTIONS
     st.markdown("---")
-    st.header("🏦 Assumptions")
+    st.header("Assumptions")
     rf_input = st.number_input(
         "Risk Free Rate (%)", 
         min_value=0.0, 
@@ -271,7 +271,7 @@ try:
         # PAGE 1: GUIDE (NEW LANDING PAGE)
         # -----------------------------------------------------------------------------
         if page == "Guide":
-            st.header("👋 Welcome to the SMI Stock & Portfolio Comparator")
+            st.header("Welcome to the SMI Stock & Portfolio Comparator")
             
             st.markdown("""
             This application is designed to help **Swiss Investors** look beyond simple price charts. 
