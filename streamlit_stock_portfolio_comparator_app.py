@@ -411,8 +411,21 @@ try:
             
             # Only show if we have more than 1 stock to compare
             if len(corr_matrix.columns) > 1:
-                # Reset index to make it a column for Altair (Long Format transformation)
-                corr_data = corr_matrix.rename(index=lambda x: smi_companies.get(x, x), columns=lambda x: smi_companies.get(x, x)).reset_index().melt(id_vars='index')
+                # 1. Rename tickers to Company Names
+                corr_matrix_renamed = corr_matrix.rename(index=lambda x: smi_companies.get(x, x), columns=lambda x: smi_companies.get(x, x))
+                
+                # 2. Reset index to move the rows into a column called "index" (or whatever the index name was)
+                corr_data = corr_matrix_renamed.reset_index()
+                
+                # 3. Rename that new column to 'Stock A' explicitly to avoid "index" not found errors
+                # The column at index 0 is always the one we just reset.
+                corr_data = corr_data.rename(columns={corr_data.columns[0]: 'Stock A'})
+                
+                # 4. Melt: Turn the wide table into a long table
+                # id_vars='Stock A' keeps that column fixed, while the other columns (Stock Bs) get melted
+                corr_data = corr_data.melt(id_vars='Stock A')
+                
+                # 5. Rename columns for clarity
                 corr_data.columns = ['Stock A', 'Stock B', 'Correlation']
 
                 # Create Heatmap
