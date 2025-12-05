@@ -214,7 +214,15 @@ try:
     if not tickers:
         st.warning("Please select a stock")
         st.stop()
-        
+
+     # 0.1 DATE CHECKS (NEW)
+    if start_date > end_date:
+        st.error("⚠️ Error: Start Date must be before End Date.")
+        st.stop()
+    
+    if start_date > pd.Timestamp.now().date() or end_date > pd.Timestamp.now().date():
+        st.warning("⚠️ Warning: Future dates selected. Data will only be available up to the last trading day.")
+
     # 1. PREPARE TICKER LIST
     tickers_to_load = list(set(tickers + ["^SSMI"])) 
 
