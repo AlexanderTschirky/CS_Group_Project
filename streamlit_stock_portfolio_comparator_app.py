@@ -155,78 +155,32 @@ with st.sidebar: # We use st.sidebar to place everything inside this block on th
     with col2:
         end_date = st.date_input("End Date", value=pd.to_datetime("today")) # The default End Date is today's date
 
-    # 3. PORTFOLIO BUILDER (With Auto-Balancing)
+    # 3. PORTFOLIO BUILDER
     st.markdown("---")
-    st.header("⚖️ Portfolio Builder")
+    st.header("⚖️ Portfolio Builder") # This is the second header of the sidebar.
     
-    # Initialize session state for weights if not present or if tickers changed
-    if 'portfolio_weights' not in st.session_state or 'last_tickers' not in st.session_state or st.session_state.last_tickers != tickers:
-        st.session_state.last_tickers = tickers
-        # Initialize with equal weights
-        if tickers:
-            equal_weight = 100.0 / len(tickers)
-            st.session_state.portfolio_weights = {t: equal_weight for t in tickers}
-        else:
-            st.session_state.portfolio_weights = {}
-
-    def balance_weights(changed_ticker):
-        """
-        Callback function to auto-balance weights.
-        When one stock changes, the difference is distributed equally among the others.
-        """
-        if len(tickers) <= 1:
-            return # Cannot balance if only 1 or 0 stocks
-            
-        current_val = st.session_state[f"weight_{changed_ticker}"]
-        old_val = st.session_state.portfolio_weights[changed_ticker]
-        diff = current_val - old_val
-        
-        # We need to subtract this difference from the other stocks
-        other_tickers = [t for t in tickers if t != changed_ticker]
-        adjustment = diff / len(other_tickers)
-        
-        # Apply adjustment
-        for t in other_tickers:
-            new_w = st.session_state.portfolio_weights[t] - adjustment
-            # Update the session state widget key directly
-            st.session_state[f"weight_{t}"] = max(0.0, new_w) # Prevent negative weights
-            
-        # Update our master dictionary
-        for t in tickers:
-            st.session_state.portfolio_weights[t] = st.session_state[f"weight_{t}"]
-
-    weights = {} 
+    weights = {} # We open up an empty dictionary to store the weights the user enters
     
     # Only show weights input if tickers are selected
     if tickers:
-        with st.expander("Assign Weights (%)", expanded=True): 
-            st.write("Adjust one weight, and the others will automatically balance to 100%.") 
+        with st.expander("Assign Weights (%)", expanded=True): # We open an expander to assign the weights, it is expanded by default.
+            st.write("Assign percentage weights. Must sum to 100%.") # Descripion for the user.
+            
+            default_weight = round(100.0 / len(tickers), 2) # We set all weights of the selected stocks equal by default
             
             for t in tickers:
-                name = smi_companies[t] 
-                
-                # We use the session state to store values. 
-                # on_change calls our balancing function immediately when a number is typed.
-                st.number_input(
-                    f"{name} (%)", 
-                    min_value=0.0, 
-                    max_value=100.0, 
-                    value=st.session_state.portfolio_weights.get(t, 0.0), 
-                    step=1.0,
-                    key=f"weight_{t}",
-                    on_change=balance_weights,
-                    args=(t,)
-                )
-                weights[t] = st.session_state.portfolio_weights.get(t, 0.0)
+                name = smi_companies[t] # This makes sure we use the company name, not the ticker symbol.
+                # Input for Percentage (0-100)
+                weights[t] = st.number_input(f"{name} (%)", min_value=0.0, max_value=100.0, value=default_weight, step=1.0) # For any stock, a weight between 0% and 100% can be chosen.
+                # If the plus or minus sign are used, the weight will increase or decrease by 1%.
 
             current_total = sum(weights.values())
-            st.write(f"**Total Allocation:** {current_total:.1f}%") 
+            st.write(f"**Total Allocation:** {current_total:.1f}%") # We display the current total allocation
             
-            # Simple check for the visual confirmation, though math should enforce 100% mostly
-            if abs(current_total - 100.0) < 0.1:
-                st.success("✅ Portfolio Ready") 
+            if abs(current_total - 100.0) > 0.1: # We allow for a tiny float error of 0.1% of the chosen weights
+                st.error("⚠️ Total must be exactly 100%") # If the total of the picked weights is outside of the float error, an error message will be displayed.
             else:
-                st.info("ℹ️ Weights are balancing...")
+                st.success("✅ Portfolio Ready") # If the total of the picked weights is good, this message occurs.
 
 # -----------------------------------------------------------------------------
 # LOADING DATA
@@ -282,8 +236,7 @@ try:
         valid_portfolio = False 
         current_total = sum(weights.values())
         
-        # Adjusted tolerance slightly for auto-balancing float math
-        if tickers and not cleaned_df.empty and abs(current_total - 100.0) <= 0.5: 
+        if tickers and not cleaned_df.empty and abs(current_total - 100.0) <= 0.1: 
             valid_portfolio = True 
     
             selected_tickers = cleaned_df[tickers]
@@ -298,7 +251,7 @@ try:
             
             cleaned_df["💼 My Portfolio"] = my_portfolio_price 
 
-        elif tickers and abs(current_total - 100.0) > 0.5:
+        elif tickers and abs(current_total - 100.0) > 0.1:
             st.warning("⚠️ 'My Portfolio' not calculated: Weights do not sum to 100%.")
 
         # -----------------------------------------------------------------------------
