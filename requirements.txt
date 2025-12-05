@@ -2,5 +2,6 @@ streamlit
 pandas
 numpy
 yfinance
-altair
+matplotlib.pyplot
 scikit-learn
+
